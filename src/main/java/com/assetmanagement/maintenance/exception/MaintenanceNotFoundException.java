@@ -1,4 +1,8 @@
 package com.assetmanagement.maintenance.exception;
 
-public class MaintenanceNotFoundException {
+public class MaintenanceNotFoundException extends RuntimeException {
+
+    public MaintenanceNotFoundException(String message) {
+        super(message);
+    }
 }

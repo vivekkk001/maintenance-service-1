@@ -1,10 +1,8 @@
 package com.assetmanagement.maintenance.service;
 
 import com.assetmanagement.maintenance.client.AssetClient;
-import com.assetmanagement.maintenance.dto.AssetApiResponse;
-import com.assetmanagement.maintenance.dto.MaintenanceRequestDTO;
-import com.assetmanagement.maintenance.dto.MaintenanceResponseDTO;
-import com.assetmanagement.maintenance.dto.StatusUpdateDTO;
+import com.assetmanagement.maintenance.client.LogClient;
+import com.assetmanagement.maintenance.dto.*;
 import com.assetmanagement.maintenance.entity.MaintenanceRequest;
 import com.assetmanagement.maintenance.entity.Status;
 import com.assetmanagement.maintenance.exception.MaintenanceNotFoundException;
@@ -21,6 +19,7 @@ public class MaintenanceService {
 
     private final MaintenanceRepository maintenanceRepository;
     private final AssetClient assetClient;
+    private final LogClient logClient; // Log service integration[cite: 4]
 
     public List<MaintenanceResponseDTO> getAllRequests() {
         return maintenanceRepository.findAll()
@@ -33,28 +32,23 @@ public class MaintenanceService {
         MaintenanceRequest request = maintenanceRepository.findById(id)
                 .orElseThrow(() -> new MaintenanceNotFoundException("Maintenance Request not found with id: " + id));
 
-        // Convert the string from the DTO into your Enum
         Status newStatus = Status.valueOf(dto.getStatus());
         request.setStatus(newStatus);
 
         if (newStatus == Status.COMPLETED) {
             request.setResolvedAt(LocalDateTime.now());
-            // Use the Enum value for the Asset Service call too if it expects an object
+            // Asset service update[cite: 4]
             assetClient.updateAssetStatus(request.getAssetId(), new StatusUpdateDTO("AVAILABLE"));
+
+            // Log completion[cite: 4]
+            logClient.createLog(new LogRequestDTO(request.getAssetId(), "MAINTENANCE_COMPLETED", "Asset resolved"));
         }
 
         MaintenanceRequest saved = maintenanceRepository.save(request);
         return mapToDTO(saved);
     }
 
-    public void deleteRequest(Long id) {
-        MaintenanceRequest request = maintenanceRepository.findById(id)
-                .orElseThrow(() -> new MaintenanceNotFoundException("Maintenance Request not found with id: " + id));
-        maintenanceRepository.delete(request);
-    }
-
     public MaintenanceResponseDTO createRequest(MaintenanceRequestDTO dto) {
-        // Validate asset exists
         AssetApiResponse assetResponse = assetClient.getAssetById(dto.getAssetId());
 
         if (assetResponse == null || assetResponse.getData() == null) {
@@ -72,10 +66,19 @@ public class MaintenanceService {
 
         MaintenanceRequest saved = maintenanceRepository.save(request);
 
-        // Workflow: Automatically set Asset to MAINTENANCE upon creation
+        // Workflow: Asset status update[cite: 4]
         assetClient.updateAssetStatus(saved.getAssetId(), new StatusUpdateDTO("MAINTENANCE"));
 
+        // Log creation[cite: 4]
+        logClient.createLog(new LogRequestDTO(saved.getAssetId(), "MAINTENANCE_STARTED", "Ticket created: " + saved.getId()));
+
         return mapToDTO(saved);
+    }
+
+    public void deleteRequest(Long id) { // Ensure this is public for the Controller to see[cite: 4]
+        MaintenanceRequest request = maintenanceRepository.findById(id)
+                .orElseThrow(() -> new MaintenanceNotFoundException("Maintenance Request not found with id: " + id));
+        maintenanceRepository.delete(request);
     }
 
     public MaintenanceResponseDTO getRequestById(Long id) {
